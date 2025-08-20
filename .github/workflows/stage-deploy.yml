@@ -3,7 +3,7 @@ name: Stage Deploy
 
 on:
 push:
-branches: [ "main" ]
+branches: [ "stage" ]
 
 
 jobs:
