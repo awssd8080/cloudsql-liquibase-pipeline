@@ -1,48 +1,43 @@
 name: Stage Deploy
 
-
 on:
-push:
-branches: [ "stage" ]
-
+  push:
+    branches: [ "stage" ]
 
 jobs:
-deploy:
-runs-on: ubuntu-latest
+  deploy:
+    runs-on: ubuntu-latest
 
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-steps:
-- name: Checkout code
-uses: actions/checkout@v3
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+    - name: Copy Liquibase files to VM via IAP
+      run: |
+        echo "Copying Liquibase files to VM..."
+        gcloud compute scp --recurse ./db github-actions@liquibase-vm:/home/github-actions/liquibase-project \
+          --zone=us-central1-a \
+          --tunnel-through-iap \
+          --project=liquibase-demo-001
 
-- name: Authenticate to GCP
-uses: google-github-actions/auth@v1
-with:
-credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-
-- name: Copy Liquibase files to VM
-run: |
-gcloud compute scp --recurse ./db github-actions@liquibase-vm:/opt/liquibase-project \
---zone=us-central1-a \
---tunnel-through-iap \
---project=liquibase-demo-001
-
-
-- name: Run Liquibase on VM
-uses: google-github-actions/ssh-compute@v1
-with:
-instance_name: liquibase-vm
-zone: us-central1-a
-user: github-actions
-project_id: liquibase-demo-001
-ssh_private_key: ${{ secrets.IAP_SSH_PRIVATE_KEY }}
-command: |
-cd /opt/liquibase-project
-liquibase \
---url="jdbc:postgresql://10.193.0.3:5432/stage_db" \
---username=liquibase_user \
---password=StrongPassword123 \
---changelog-file=db/changelog-master.xml \
-update
+    - name: Run Liquibase via IAP on VM
+      uses: google-github-actions/ssh-compute@v1
+      with:
+        instance_name: liquibase-vm
+        zone: us-central1-a
+        user: github-actions
+        project_id: liquibase-demo-001
+        ssh_private_key: ${{ secrets.IAP_SSH_PRIVATE_KEY }}
+        command: |
+          cd /home/github-actions/liquibase-project
+          liquibase \
+            --url="jdbc:postgresql://10.193.0.3:5432/stage_db" \
+            --username=liquibase_user \
+            --password=StrongPassword123 \
+            --changelog-file=db/changelog-master.xml \
+            update
