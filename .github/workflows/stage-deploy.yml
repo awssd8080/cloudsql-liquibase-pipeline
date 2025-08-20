@@ -1,4 +1,4 @@
-name: Stage DB Deployment
+name: Stage DB Deployment via IAP SSH
 
 on:
   push:
@@ -6,59 +6,55 @@ on:
       - stage
 
 jobs:
-  deploy-stage:
+  deploy-via-iap:
     runs-on: ubuntu-latest
     env:
-      CLOUDSQL_INSTANCE_CONNECTION: ${{ secrets.CLOUDSQL_INSTANCE_CONNECTION }}
       DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASS: ${{ secrets.DB_PASS }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Authenticate to GCP
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Download Cloud SQL Auth Proxy
+      - name: Install gcloud + IAP components
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.PROJECT_ID }}
+          install_components: iap
+
+      - name: Upload changelogs to GCP VM via IAP SCP
         run: |
-          echo "Downloading Cloud SQL Auth Proxy..."
-          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.linux.amd64
-          chmod +x cloud-sql-proxy
-      - name: Download SA Key from GCS and Start Proxy
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+
+          gcloud compute scp --recurse ./db \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/home/${{ secrets.SSH_USERNAME }}/liquibase \
+            --zone=${{ secrets.VM_ZONE }} \
+            --project=${{ secrets.PROJECT_ID }} \
+            --ssh-key-file=key.pem \
+            --tunnel-through-iap
+
+      - name: Run Liquibase inside GCP VM via IAP SSH
         run: |
-          echo "Downloading service account key from GCS..."
-          gcloud storage cp "gs://liquikeys/key.json" sa-key.json
-          echo "First 3 lines of JSON file (debug):"
-          head -n 3 sa-key.json
-          export GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/sa-key.json"
-          ./cloud-sql-proxy "$CLOUDSQL_INSTANCE_CONNECTION" &
-          sleep 10
-          echo "Checking port 5432..."
-          netstat -tlnp | grep 5432 || echo "Port 5432 not open!"
-      - name: Install Liquibase
-        run: |
-          echo "Installing Liquibase..."
-          curl -Lo liquibase.zip https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.zip
-          sudo apt-get update && sudo apt-get install -y unzip
-          unzip liquibase.zip -d liquibase-cli
-          sudo mv liquibase-cli /opt/liquibase
-          sudo ln -s /opt/liquibase/liquibase /usr/local/bin/liquibase
-          liquibase --version
-      - name: Run Liquibase on Stage
-        run: |
-          liquibase \
-            --url="$DB_STAGE_URL" \
-            --username=$DB_USER \
-            --password=$DB_PASS \
-            --changelog-file=db/changelog-master.xml \
-            tag "build-${GITHUB_RUN_NUMBER}"
-          liquibase \
-            --url="$DB_STAGE_URL" \
-            --username=$DB_USER \
-            --password=$DB_PASS \
-            --changelog-file=db/changelog-master.xml \
-            update
+          gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
+            --zone=${{ secrets.VM_ZONE }} \
+            --project=${{ secrets.PROJECT_ID }} \
+            --ssh-key-file=key.pem \
+            --tunnel-through-iap \
+            --command="cd liquibase/db && \
+              liquibase --url='${{ secrets.DB_STAGE_URL }}' \
+                        --username='${{ secrets.DB_USER }}' \
+                        --password='${{ secrets.DB_PASS }}' \
+                        --changeLogFile=changelog-master.xml \
+                        tag build-${GITHUB_RUN_NUMBER} && \
+              liquibase --url='${{ secrets.DB_STAGE_URL }}' \
+                        --username='${{ secrets.DB_USER }}' \
+                        --password='${{ secrets.DB_PASS }}' \
+                        --changeLogFile=changelog-master.xml \
+                        update"
