@@ -34,17 +34,16 @@ jobs:
           chmod 600 key.pem
           ssh-keygen -y -f key.pem > key.pem.pub
 
-      - name: Create /opt/liquibase-project/$BUILD_DIR on VM
+      - name: Create build directory under /opt/liquibase-project on VM
         run: |
           gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
             --project=${{ secrets.PROJECT_ID }} \
             --zone=${{ secrets.VM_ZONE }} \
             --ssh-key-file=key.pem \
             --tunnel-through-iap \
-            --command="sudo mkdir -p /opt/liquibase-project/${BUILD_DIR} && \
-                       sudo chown -R $USER:$USER /opt/liquibase-project/${BUILD_DIR}"
+            --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
 
-      - name: Upload Liquibase changelogs to GCP VM using IAP
+      - name: Upload Liquibase changelogs to VM using IAP SCP
         run: |
           gcloud compute scp \
             --project=${{ secrets.PROJECT_ID }} \
@@ -54,7 +53,7 @@ jobs:
             --recurse ./db \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
-      - name: Run Liquibase from inside GCP VM using IAP SSH
+      - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
           gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
             --project=${{ secrets.PROJECT_ID }} \
