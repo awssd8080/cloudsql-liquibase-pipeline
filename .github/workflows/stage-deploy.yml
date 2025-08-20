@@ -3,7 +3,7 @@ name: Stage DB Deployment
 on:
   push:
     branches:
-      - main
+      - stage
 
 jobs:
   deploy-stage:
