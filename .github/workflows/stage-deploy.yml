@@ -12,6 +12,7 @@ jobs:
       DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASS: ${{ secrets.DB_PASS }}
+      BUILD_DIR: build-${{ github.run_number }}
 
     steps:
       - name: Checkout code
@@ -33,6 +34,16 @@ jobs:
           chmod 600 key.pem
           ssh-keygen -y -f key.pem > key.pem.pub
 
+      - name: Create /opt/liquibase-project/$BUILD_DIR on VM
+        run: |
+          gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
+            --project=${{ secrets.PROJECT_ID }} \
+            --zone=${{ secrets.VM_ZONE }} \
+            --ssh-key-file=key.pem \
+            --tunnel-through-iap \
+            --command="sudo mkdir -p /opt/liquibase-project/${BUILD_DIR} && \
+                       sudo chown -R $USER:$USER /opt/liquibase-project/${BUILD_DIR}"
+
       - name: Upload Liquibase changelogs to GCP VM using IAP
         run: |
           gcloud compute scp \
@@ -41,7 +52,7 @@ jobs:
             --tunnel-through-iap \
             --ssh-key-file=key.pem \
             --recurse ./db \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/home/${{ secrets.SSH_USERNAME }}/liquibase
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
       - name: Run Liquibase from inside GCP VM using IAP SSH
         run: |
@@ -50,7 +61,7 @@ jobs:
             --zone=${{ secrets.VM_ZONE }} \
             --ssh-key-file=key.pem \
             --tunnel-through-iap \
-            --command="cd liquibase/db && \
+            --command="cd /opt/liquibase-project/${BUILD_DIR}/db && \
               liquibase --url='${{ secrets.DB_STAGE_URL }}' \
                         --username='${{ secrets.DB_USER }}' \
                         --password='${{ secrets.DB_PASS }}' \
