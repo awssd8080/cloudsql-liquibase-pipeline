@@ -22,29 +22,32 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Install gcloud + IAP components
+      - name: Setup gcloud CLI (no IAP component install)
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: ${{ secrets.PROJECT_ID }}
-          install_components: iap
+          # install_components: beta  # Optional, not needed for IAP SSH
 
-      - name: Upload changelogs to GCP VM via IAP SCP
+      - name: Prepare SSH key for IAP
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
           chmod 600 key.pem
 
-          gcloud compute scp --recurse ./db \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/home/${{ secrets.SSH_USERNAME }}/liquibase \
-            --zone=${{ secrets.VM_ZONE }} \
+      - name: Upload Liquibase changelogs to VM via IAP SCP
+        run: |
+          gcloud compute scp \
             --project=${{ secrets.PROJECT_ID }} \
+            --zone=${{ secrets.VM_ZONE }} \
+            --tunnel-through-iap \
             --ssh-key-file=key.pem \
-            --tunnel-through-iap
+            --recurse ./db \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/home/${{ secrets.SSH_USERNAME }}/liquibase
 
-      - name: Run Liquibase inside GCP VM via IAP SSH
+      - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
           gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
-            --zone=${{ secrets.VM_ZONE }} \
             --project=${{ secrets.PROJECT_ID }} \
+            --zone=${{ secrets.VM_ZONE }} \
             --ssh-key-file=key.pem \
             --tunnel-through-iap \
             --command="cd liquibase/db && \
