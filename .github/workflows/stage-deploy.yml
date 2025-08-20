@@ -70,4 +70,4 @@ jobs:
                         --username='${{ secrets.DB_USER }}' \
                         --password='${{ secrets.DB_PASS }}' \
                         --changeLogFile=changelog-master.xml \
-                        update "
+                        update --log-level flag"
