@@ -31,7 +31,7 @@ jobs:
 
       - name: Create build directory under /opt/liquibase-project on VM
         run: |
-          gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
+          gcloud compute ssh ${{ secrets.VM_NAME }} \
             --project=${{ secrets.PROJECT_ID }} \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
@@ -44,15 +44,14 @@ jobs:
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --recurse ./db \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
+            ${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
       - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
-          gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
+          gcloud compute ssh ${{ secrets.VM_NAME }} \
             --project=${{ secrets.PROJECT_ID }} \
             --zone=${{ secrets.VM_ZONE }} \
-            --ssh-key-file=key.pem \
-            --tunnel-through-iap \
+             --tunnel-through-iap \
             --command="cd /opt/liquibase-project/${BUILD_DIR}/db && \
               liquibase --url='${{ secrets.DB_STAGE_URL }}' \
                         --username='${{ secrets.DB_USER }}' \
