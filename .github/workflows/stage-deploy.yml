@@ -27,19 +27,13 @@ jobs:
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: ${{ secrets.PROJECT_ID }}
-
-      - name: Prepare SSH key and generate public key
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
-          chmod 600 key.pem
-          ssh-keygen -y -f key.pem > key.pem.pub
+    
 
       - name: Create build directory under /opt/liquibase-project on VM
         run: |
           gcloud compute ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }} \
             --project=${{ secrets.PROJECT_ID }} \
             --zone=${{ secrets.VM_ZONE }} \
-            --ssh-key-file=key.pem \
             --tunnel-through-iap \
             --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
 
@@ -49,7 +43,6 @@ jobs:
             --project=${{ secrets.PROJECT_ID }} \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
-            --ssh-key-file=key.pem \
             --recurse ./db \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
