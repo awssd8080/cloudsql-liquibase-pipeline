@@ -5,9 +5,14 @@ on:
     branches:
       - stage
 
+permissions:
+  id-token: write         # Required for WIF to request OIDC tokens
+  contents: read          # Required to checkout your repo
+
 jobs:
   deploy-via-iap:
     runs-on: ubuntu-latest
+
     env:
       DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
       DB_USER: ${{ secrets.DB_USER }}
