@@ -18,21 +18,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud using WIF
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/790726342913/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'liquibase-ci-cd-wif@liquibase-demo-001.iam.gserviceaccount.com'
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: ${{ secrets.PROJECT_ID }}
-    
+          project_id: liquibase-demo-001
 
       - name: Create build directory under /opt/liquibase-project on VM
         run: |
           gcloud compute ssh ${{ secrets.VM_NAME }} \
-            --project=${{ secrets.PROJECT_ID }} \
+            --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
@@ -40,7 +41,7 @@ jobs:
       - name: Upload Liquibase changelogs to VM using IAP SCP
         run: |
           gcloud compute scp \
-            --project=${{ secrets.PROJECT_ID }} \
+            --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --recurse ./db \
@@ -49,9 +50,9 @@ jobs:
       - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
           gcloud compute ssh ${{ secrets.VM_NAME }} \
-            --project=${{ secrets.PROJECT_ID }} \
+            --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
-             --tunnel-through-iap \
+            --tunnel-through-iap \
             --command="cd /opt/liquibase-project/${BUILD_DIR}/db && \
               liquibase --url='${{ secrets.DB_STAGE_URL }}' \
                         --username='${{ secrets.DB_USER }}' \
@@ -63,4 +64,4 @@ jobs:
                         --password='${{ secrets.DB_PASS }}' \
                         --changeLogFile=changelog-master.xml \
                         --defaultSchemaName=public \
-                        update --log-level flag"
+                        update --log-level=info"
