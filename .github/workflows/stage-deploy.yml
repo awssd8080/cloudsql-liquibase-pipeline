@@ -39,9 +39,9 @@ jobs:
         run: |
           gcloud components install beta --quiet
 
-      - name: Create build directory under /opt/liquibase-project on VM
+      - name: Create build directory on VM
         run: |
-          gcloud beta compute ssh ${{ secrets.VM_NAME }} \
+          gcloud beta compute ssh ubuntu@${{ secrets.VM_NAME }} \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
@@ -54,11 +54,11 @@ jobs:
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --recurse ./db \
-            ${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
+            ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
       - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
-          gcloud beta compute ssh ${{ secrets.VM_NAME }} \
+          gcloud beta compute ssh ubuntu@${{ secrets.VM_NAME }} \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
