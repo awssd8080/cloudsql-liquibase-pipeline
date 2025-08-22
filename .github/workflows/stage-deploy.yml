@@ -41,7 +41,7 @@ jobs:
 
       - name: Create build directory on VM
         run: |
-          gcloud beta compute ssh ubuntu@${{ secrets.VM_NAME }} \
+          gcloud  compute ssh ubuntu@${{ secrets.VM_NAME }} \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
@@ -49,7 +49,7 @@ jobs:
 
       - name: Upload Liquibase changelogs to VM using IAP SCP
         run: |
-          gcloud beta compute scp \
+          gcloud  compute scp \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
@@ -58,7 +58,7 @@ jobs:
 
       - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
-          gcloud beta compute ssh ubuntu@${{ secrets.VM_NAME }} \
+          gcloud  compute ssh ubuntu@${{ secrets.VM_NAME }} \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
