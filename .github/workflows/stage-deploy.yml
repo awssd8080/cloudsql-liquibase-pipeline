@@ -6,8 +6,8 @@ on:
       - stage
 
 permissions:
-  id-token: write         # Required for Workload Identity Federation (WIF)
-  contents: read          # Required to checkout code
+  id-token: write         # Required for WIF
+  contents: read          # Required for checkout
 
 jobs:
   deploy-via-iap:
@@ -34,6 +34,10 @@ jobs:
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: liquibase-demo-001
+
+      - name: Install gcloud beta component
+        run: |
+          gcloud components install beta --quiet
 
       - name: Create build directory under /opt/liquibase-project on VM
         run: |
