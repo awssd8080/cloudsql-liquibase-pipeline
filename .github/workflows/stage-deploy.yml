@@ -6,8 +6,8 @@ on:
       - stage
 
 permissions:
-  id-token: write         # Required for WIF to request OIDC tokens
-  contents: read          # Required to checkout your repo
+  id-token: write         # Required for Workload Identity Federation (WIF)
+  contents: read          # Required to checkout code
 
 jobs:
   deploy-via-iap:
@@ -37,7 +37,7 @@ jobs:
 
       - name: Create build directory under /opt/liquibase-project on VM
         run: |
-          gcloud compute ssh ${{ secrets.VM_NAME }} \
+          gcloud beta compute ssh ${{ secrets.VM_NAME }} \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
@@ -45,7 +45,7 @@ jobs:
 
       - name: Upload Liquibase changelogs to VM using IAP SCP
         run: |
-          gcloud compute scp \
+          gcloud beta compute scp \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
@@ -54,7 +54,7 @@ jobs:
 
       - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
-          gcloud compute ssh ${{ secrets.VM_NAME }} \
+          gcloud beta compute ssh ${{ secrets.VM_NAME }} \
             --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
