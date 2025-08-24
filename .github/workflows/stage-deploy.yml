@@ -6,88 +6,87 @@ on:
       - stage
 
 permissions:
-  id-token: write         # Required for WIF
-  contents: read          # Required for checkout
-
-env:
-  PROJECT_ID: liquibase-demo-001
-  BUILD_DIR: build-${{ github.run_number }}
+  id-token: write         # Required for Workload Identity Federation (WIF)
+  contents: read          # Required for code checkout
 
 jobs:
   deploy-via-iap:
     runs-on: ubuntu-latest
 
     env:
-      DB_URL: ${{ secrets.DB_STAGE_URL }}
-      DB_USER: ${{ secrets.DB_STAGE_USER }}
-      DB_PASS: ${{ secrets.DB_STAGE_PASS }}
+      DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASS: ${{ secrets.DB_PASS }}
+      BUILD_DIR: build-${{ github.run_number }}
 
     steps:
-      - name: Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v3
 
-      - name: Authenticate to Google Cloud using WIF
+      - name: ☁️ Authenticate to Google Cloud using WIF
         uses: google-github-actions/auth@v1
         with:
           token_format: 'access_token'
           workload_identity_provider: 'projects/790726342913/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
           service_account: 'liquibase-ci-cd-wif@liquibase-demo-001.iam.gserviceaccount.com'
 
-      - name: Setup gcloud CLI
+      - name: ⚙️ Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: ${{ env.PROJECT_ID }}
+          project_id: liquibase-demo-001
 
-      - name: Install pgsanity
+      - name: 🧰 Install PostgreSQL client (ecpg) and pgsanity
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           pip install --user pgsanity
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: 🔍 Validate SQL syntax using pgsanity
+      - name: 🔍 Validate raw SQL files with pgsanity
         run: |
           echo "🔍 Validating raw SQL files with pgsanity..."
           find ./db -name "*.sql" -print0 | xargs -0 pgsanity
 
-      - name: 🔍 Validate Liquibase changelog structure
+      - name: 🔍 Validate Liquibase changelogs
         run: |
-          docker run --rm -v ${{ github.workspace }}/db:/liquibase/changelog \
-            liquibase/liquibase:4.10 \
-            --url="${{ env.DB_URL }}" \
-            --username="${{ env.DB_USER }}" \
-            --password="${{ env.DB_PASS }}" \
-            --changeLogFile=changelog-master.xml \
+          echo "🔍 Validating Liquibase changelogs..."
+          liquibase \
+            --url='${{ env.DB_STAGE_URL }}' \
+            --username='${{ env.DB_USER }}' \
+            --password='${{ env.DB_PASS }}' \
+            --changeLogFile=./db/changelog-master.xml \
             validate
 
-      - name: Create build directory on VM
+      - name: 📂 Create build directory on VM
         run: |
           gcloud compute ssh ubuntu@${{ secrets.VM_NAME }} \
-            --project=${{ env.PROJECT_ID }} \
+            --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
-            --command="mkdir -p /opt/liquibase-project/${{ env.BUILD_DIR }}"
+            --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
 
-      - name: Upload Liquibase changelogs to VM using IAP SCP
+      - name: 📤 Upload Liquibase changelogs to VM using IAP SCP
         run: |
           gcloud compute scp \
-            --project=${{ env.PROJECT_ID }} \
+            --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --recurse ./db \
-            ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
+            ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${BUILD_DIR}
 
-      - name: 🚀 Run Liquibase from inside GCP VM via IAP SSH
+      - name: 🚀 Run Liquibase update from VM via IAP SSH
         run: |
           gcloud compute ssh ubuntu@${{ secrets.VM_NAME }} \
-            --project=${{ env.PROJECT_ID }} \
+            --project=liquibase-demo-001 \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
-            --command="cd /opt/liquibase-project/${{ env.BUILD_DIR }}/db && \
-              liquibase --url='${{ env.DB_URL }}' \
+            --command="cd /opt/liquibase-project/${BUILD_DIR}/db && \
+              liquibase --url='${{ env.DB_STAGE_URL }}' \
                         --username='${{ env.DB_USER }}' \
                         --password='${{ env.DB_PASS }}' \
                         --changeLogFile=changelog-master.xml \
                         tag build-${GITHUB_RUN_NUMBER} && \
-              liquibase --url='${{ env.DB_URL }}' \
+              liquibase --url='${{ env.DB_STAGE_URL }}' \
                         --username='${{ env.DB_USER }}' \
                         --password='${{ env.DB_PASS }}' \
                         --changeLogFile=changelog-master.xml \
