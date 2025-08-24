@@ -1,40 +1,30 @@
 name: Stage DB Deployment via IAP SSH
 
 on:
-  workflow_dispatch:
-    inputs:
-      instance:
-        description: 'Target DB instance (e.g. pricing, catalog)'
-        required: true
-        default: 'pricing'
+  push:
+    branches:
+      - stage
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write         # Required for WIF
+  contents: read          # Required for checkout
+
+env:
+  PROJECT_ID: liquibase-demo-001
+  BUILD_DIR: build-${{ github.run_number }}
 
 jobs:
-  liquibase-deploy:
+  deploy-via-iap:
     runs-on: ubuntu-latest
 
     env:
-      PROJECT_ID: liquibase-demo-001
-      INSTANCE: ${{ github.event.inputs.instance }}
-      BUILD_DIR: build-${{ github.run_number }}
+      DB_URL: ${{ secrets.DB_STAGE_URL }}
+      DB_USER: ${{ secrets.DB_STAGE_USER }}
+      DB_PASS: ${{ secrets.DB_STAGE_PASS }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      - name: Install ecpg for pgsanity
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          pip install --user pgsanity
-
-      - name: Run SQL syntax check (pgsanity)
-        run: |
-          echo "🔍 Validating SQL syntax..."
-          find ./db -name "*.sql" -print0 | xargs -0 ~/.local/bin/pgsanity
 
       - name: Authenticate to Google Cloud using WIF
         uses: google-github-actions/auth@v1
@@ -47,6 +37,26 @@ jobs:
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: ${{ env.PROJECT_ID }}
+
+      - name: Install pgsanity
+        run: |
+          pip install --user pgsanity
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: 🔍 Validate SQL syntax using pgsanity
+        run: |
+          echo "🔍 Validating raw SQL files with pgsanity..."
+          find ./db -name "*.sql" -print0 | xargs -0 pgsanity
+
+      - name: 🔍 Validate Liquibase changelog structure
+        run: |
+          docker run --rm -v ${{ github.workspace }}/db:/liquibase/changelog \
+            liquibase/liquibase:4.10 \
+            --url="${{ env.DB_URL }}" \
+            --username="${{ env.DB_USER }}" \
+            --password="${{ env.DB_PASS }}" \
+            --changeLogFile=changelog-master.xml \
+            validate
 
       - name: Create build directory on VM
         run: |
@@ -65,25 +75,21 @@ jobs:
             --recurse ./db \
             ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
-      - name: Run Liquibase from inside GCP VM via IAP SSH
+      - name: 🚀 Run Liquibase from inside GCP VM via IAP SSH
         run: |
-          DB_URL=${{ secrets['DB_URL_' + env.INSTANCE | upper] }}
-          DB_USER=${{ secrets['DB_USER_' + env.INSTANCE | upper] }}
-          DB_PASS=${{ secrets['DB_PASS_' + env.INSTANCE | upper] }}
-
           gcloud compute ssh ubuntu@${{ secrets.VM_NAME }} \
             --project=${{ env.PROJECT_ID }} \
             --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --command="cd /opt/liquibase-project/${{ env.BUILD_DIR }}/db && \
-              liquibase --url='${DB_URL}' \
-                        --username='${DB_USER}' \
-                        --password='${DB_PASS}' \
+              liquibase --url='${{ env.DB_URL }}' \
+                        --username='${{ env.DB_USER }}' \
+                        --password='${{ env.DB_PASS }}' \
                         --changeLogFile=changelog-master.xml \
                         tag build-${GITHUB_RUN_NUMBER} && \
-              liquibase --url='${DB_URL}' \
-                        --username='${DB_USER}' \
-                        --password='${DB_PASS}' \
+              liquibase --url='${{ env.DB_URL }}' \
+                        --username='${{ env.DB_USER }}' \
+                        --password='${{ env.DB_PASS }}' \
                         --changeLogFile=changelog-master.xml \
                         --defaultSchemaName=public \
                         update --log-level=info"
