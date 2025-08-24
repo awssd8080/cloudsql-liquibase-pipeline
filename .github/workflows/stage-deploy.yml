@@ -6,22 +6,47 @@ on:
       - stage
 
 permissions:
-  id-token: write         # Required for WIF
-  contents: read          # Required for checkout
+  id-token: write
+  contents: read
 
 jobs:
-  deploy-via-iap:
+  liquibase-deploy:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        db_config:
+          - name: pricing
+            vm_name: liquibase-pricing-vm
+            vm_zone: us-central1-a
+            db_url: ${{ secrets.DB_URL_PRICING }}
+            db_user: ${{ secrets.DB_USER_PRICING }}
+            db_pass: ${{ secrets.DB_PASS_PRICING }}
+            changelog_file: changelog-pricing.xml
+
+          - name: catalog
+            vm_name: liquibase-catalog-vm
+            vm_zone: us-east1-b
+            db_url: ${{ secrets.DB_URL_CATALOG }}
+            db_user: ${{ secrets.DB_USER_CATALOG }}
+            db_pass: ${{ secrets.DB_PASS_CATALOG }}
+            changelog_file: changelog-catalog.xml
 
     env:
-      DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASS: ${{ secrets.DB_PASS }}
       BUILD_DIR: build-${{ github.run_number }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Install pgsanity
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pgsanity
+
+      - name: Validate SQL syntax with pgsanity
+        run: |
+          echo "🔍 Validating SQL syntax with pgsanity..."
+          find db/ -name "*.sql" -print0 | xargs -0 -n1 pgsanity
 
       - name: Authenticate to Google Cloud using WIF
         uses: google-github-actions/auth@v1
@@ -37,36 +62,54 @@ jobs:
 
       - name: Create build directory on VM
         run: |
-          gcloud  compute ssh ubuntu@${{ secrets.VM_NAME }} \
+          gcloud compute ssh ubuntu@${{ matrix.db_config.vm_name }} \
             --project=liquibase-demo-001 \
-            --zone=${{ secrets.VM_ZONE }} \
+            --zone=${{ matrix.db_config.vm_zone }} \
             --tunnel-through-iap \
             --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
 
       - name: Upload Liquibase changelogs to VM using IAP SCP
         run: |
-          gcloud  compute scp \
+          gcloud compute scp \
             --project=liquibase-demo-001 \
-            --zone=${{ secrets.VM_ZONE }} \
+            --zone=${{ matrix.db_config.vm_zone }} \
             --tunnel-through-iap \
             --recurse ./db \
-            ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
+            ubuntu@${{ matrix.db_config.vm_name }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
-      - name: Run Liquibase from inside GCP VM via IAP SSH
+      - name: Run Liquibase (status, validate, updateSQL, tag, update)
         run: |
-          gcloud  compute ssh ubuntu@${{ secrets.VM_NAME }} \
+          gcloud compute ssh ubuntu@${{ matrix.db_config.vm_name }} \
             --project=liquibase-demo-001 \
-            --zone=${{ secrets.VM_ZONE }} \
+            --zone=${{ matrix.db_config.vm_zone }} \
             --tunnel-through-iap \
             --command="cd /opt/liquibase-project/${BUILD_DIR}/db && \
-              liquibase --url='${{ secrets.DB_STAGE_URL }}' \
-                        --username='${{ secrets.DB_USER }}' \
-                        --password='${{ secrets.DB_PASS }}' \
-                        --changeLogFile=changelog-master.xml \
+              echo '🔍 Running Liquibase status...' && \
+              liquibase --url='${{ matrix.db_config.db_url }}' \
+                        --username='${{ matrix.db_config.db_user }}' \
+                        --password='${{ matrix.db_config.db_pass }}' \
+                        --changeLogFile=${{ matrix.db_config.changelog_file }} \
+                        status && \
+              echo '✅ Validating changelogs...' && \
+              liquibase --url='${{ matrix.db_config.db_url }}' \
+                        --username='${{ matrix.db_config.db_user }}' \
+                        --password='${{ matrix.db_config.db_pass }}' \
+                        --changeLogFile=${{ matrix.db_config.changelog_file }} \
+                        validate && \
+              echo '📋 Previewing updateSQL...' && \
+              liquibase --url='${{ matrix.db_config.db_url }}' \
+                        --username='${{ matrix.db_config.db_user }}' \
+                        --password='${{ matrix.db_config.db_pass }}' \
+                        --changeLogFile=${{ matrix.db_config.changelog_file }} \
+                        updateSQL && \
+              echo '🏷️ Tagging and applying updates...' && \
+              liquibase --url='${{ matrix.db_config.db_url }}' \
+                        --username='${{ matrix.db_config.db_user }}' \
+                        --password='${{ matrix.db_config.db_pass }}' \
+                        --changeLogFile=${{ matrix.db_config.changelog_file }} \
                         tag build-${GITHUB_RUN_NUMBER} && \
-              liquibase --url='${{ secrets.DB_STAGE_URL }}' \
-                        --username='${{ secrets.DB_USER }}' \
-                        --password='${{ secrets.DB_PASS }}' \
-                        --changeLogFile=changelog-master.xml \
-                        --defaultSchemaName=public \
-                        update --log-level=info"
+              liquibase --url='${{ matrix.db_config.db_url }}' \
+                        --username='${{ matrix.db_config.db_user }}' \
+                        --password='${{ matrix.db_config.db_pass }}' \
+                        --changeLogFile=${{ matrix.db_config.changelog_file }} \
+                        update"
