@@ -1,0 +1,72 @@
+name: Stage DB Deployment via IAP SSH
+
+on:
+  push:
+    branches:
+      - stage1
+
+permissions:
+  id-token: write         # Required for WIF
+  contents: read          # Required for checkout
+
+jobs:
+  deploy-via-iap:
+    runs-on: ubuntu-latest
+
+    env:
+      DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASS: ${{ secrets.DB_PASS }}
+      BUILD_DIR: build-${{ github.run_number }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google Cloud using WIF
+        uses: google-github-actions/auth@v1
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/790726342913/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'liquibase-ci-cd-wif@liquibase-demo-001.iam.gserviceaccount.com'
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: liquibase-demo-001
+
+      - name: Create build directory on VM
+        run: |
+          gcloud  compute ssh ubuntu@${{ secrets.VM_NAME }} \
+            --project=liquibase-demo-001 \
+            --zone=${{ secrets.VM_ZONE }} \
+            --tunnel-through-iap \
+            --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
+
+      - name: Upload Liquibase changelogs to VM using IAP SCP
+        run: |
+          gcloud  compute scp \
+            --project=liquibase-demo-001 \
+            --zone=${{ secrets.VM_ZONE }} \
+            --tunnel-through-iap \
+            --recurse ./db \
+            ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
+
+      - name: Run Liquibase from inside GCP VM via IAP SSH
+        run: |
+          gcloud  compute ssh ubuntu@${{ secrets.VM_NAME }} \
+            --project=liquibase-demo-001 \
+            --zone=${{ secrets.VM_ZONE }} \
+            --tunnel-through-iap \
+            --command="cd /opt/liquibase-project/${BUILD_DIR}/db && \
+              liquibase --url='${{ secrets.DB_STAGE_URL }}' \
+                        --username='${{ secrets.DB_USER }}' \
+                        --password='${{ secrets.DB_PASS }}' \
+                        --changeLogFile=changelog-master.xml \
+                        tag build-${GITHUB_RUN_NUMBER} && \
+              liquibase --url='${{ secrets.DB_STAGE_URL }}' \
+                        --username='${{ secrets.DB_USER }}' \
+                        --password='${{ secrets.DB_PASS }}' \
+                        --changeLogFile=changelog-master.xml \
+                        --defaultSchemaName=public \
+                        update --log-level=info"
