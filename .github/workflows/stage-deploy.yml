@@ -55,7 +55,7 @@ jobs:
       - name: 🔍 Validate raw SQL files with pgsanity
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-all
+          sudo apt-get install -y postgresql-16-ecpg
           pip install --user pgsanity
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           which ecpg
