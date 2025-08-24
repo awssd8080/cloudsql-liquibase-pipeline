@@ -55,9 +55,16 @@ jobs:
       - name: 🔍 Validate raw SQL files with pgsanity
         run: |
           sudo apt-get update
+          sudo apt-get install -y wget gnupg lsb-release
+          echo "🔑 Adding PostgreSQL APT repo..."
+          wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
           sudo apt-get install -y postgresql-16-ecpg
+
           pip install --user pgsanity
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+
           which ecpg
           echo "🔍 Validating raw SQL files with pgsanity..."
           find ./db -name "*.sql" -print0 | xargs -0 pgsanity
