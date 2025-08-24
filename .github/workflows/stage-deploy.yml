@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   deploy-via-iap:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     env:
       DB_STAGE_URL: ${{ secrets.DB_STAGE_URL }}
@@ -43,7 +43,7 @@ jobs:
             --tunnel-through-iap \
             --command="mkdir -p /opt/liquibase-project/${BUILD_DIR}"
 
-      - name: 📤 Upload Liquibase changelogs to VM using IAP SCP
+      - name: 📄 Upload Liquibase changelogs to VM using IAP SCP
         run: |
           gcloud compute scp \
             --project=liquibase-demo-001 \
