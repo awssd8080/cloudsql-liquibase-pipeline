@@ -1,9 +1,12 @@
 name: Stage DB Deployment via IAP SSH
 
 on:
-  push:
-    branches:
-      - stage
+  workflow_dispatch:
+    inputs:
+      instance:
+        description: 'Target DB instance (e.g. pricing, catalog)'
+        required: true
+        default: 'pricing'
 
 permissions:
   id-token: write
@@ -12,23 +15,26 @@ permissions:
 jobs:
   liquibase-deploy:
     runs-on: ubuntu-latest
-    
+
     env:
+      PROJECT_ID: liquibase-demo-001
+      INSTANCE: ${{ github.event.inputs.instance }}
       BUILD_DIR: build-${{ github.run_number }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install pgsanity
+      - name: Install ecpg for pgsanity
         run: |
-          python3 -m pip install --upgrade pip
-          pip install pgsanity
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          pip install --user pgsanity
 
-      - name: Validate SQL syntax with pgsanity
+      - name: Run SQL syntax check (pgsanity)
         run: |
           echo "🔍 Validating SQL syntax..."
-          find db/ -name "*.sql" -print0 | xargs -0 -n1 pgsanity
+          find ./db -name "*.sql" -print0 | xargs -0 ~/.local/bin/pgsanity
 
       - name: Authenticate to Google Cloud using WIF
         uses: google-github-actions/auth@v1
@@ -40,72 +46,44 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: liquibase-demo-001
-
-      - name: Set DB and VM values based on matrix.instance
-        run: |
-          if [ "${{ matrix.instance }}" = "pricing" ]; then
-            echo "DB_URL=${{ secrets.DB_URL_PRICING }}" >> $GITHUB_ENV
-            echo "DB_USER=${{ secrets.DB_USER_PRICING }}" >> $GITHUB_ENV
-            echo "DB_PASS=${{ secrets.DB_PASS_PRICING }}" >> $GITHUB_ENV
-            echo "VM_NAME=liquibase-pricing-vm" >> $GITHUB_ENV
-            echo "VM_ZONE=us-central1-a" >> $GITHUB_ENV
-            echo "CHANGELOG_FILE=changelog-pricing.xml" >> $GITHUB_ENV
-          elif [ "${{ matrix.instance }}" = "catalog" ]; then
-            echo "DB_URL=${{ secrets.DB_URL_CATALOG }}" >> $GITHUB_ENV
-            echo "DB_USER=${{ secrets.DB_USER_CATALOG }}" >> $GITHUB_ENV
-            echo "DB_PASS=${{ secrets.DB_PASS_CATALOG }}" >> $GITHUB_ENV
-            echo "VM_NAME=liquibase-catalog-vm" >> $GITHUB_ENV
-            echo "VM_ZONE=us-east1-b" >> $GITHUB_ENV
-            echo "CHANGELOG_FILE=changelog-catalog.xml" >> $GITHUB_ENV
-          fi
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Create build directory on VM
         run: |
-          gcloud compute ssh ubuntu@$VM_NAME \
-            --project=liquibase-demo-001 \
-            --zone=$VM_ZONE \
+          gcloud compute ssh ubuntu@${{ secrets.VM_NAME }} \
+            --project=${{ env.PROJECT_ID }} \
+            --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
-            --command="mkdir -p /opt/liquibase-project/$BUILD_DIR"
+            --command="mkdir -p /opt/liquibase-project/${{ env.BUILD_DIR }}"
 
-      - name: Upload changelogs to VM
+      - name: Upload Liquibase changelogs to VM using IAP SCP
         run: |
           gcloud compute scp \
-            --project=liquibase-demo-001 \
-            --zone=$VM_ZONE \
+            --project=${{ env.PROJECT_ID }} \
+            --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
             --recurse ./db \
-            ubuntu@$VM_NAME:/opt/liquibase-project/$BUILD_DIR
+            ubuntu@${{ secrets.VM_NAME }}:/opt/liquibase-project/${{ env.BUILD_DIR }}
 
-      - name: Run Liquibase (status, validate, updateSQL, tag, update)
+      - name: Run Liquibase from inside GCP VM via IAP SSH
         run: |
-          gcloud compute ssh ubuntu@$VM_NAME \
-            --project=liquibase-demo-001 \
-            --zone=$VM_ZONE \
+          DB_URL=${{ secrets['DB_URL_' + env.INSTANCE | upper] }}
+          DB_USER=${{ secrets['DB_USER_' + env.INSTANCE | upper] }}
+          DB_PASS=${{ secrets['DB_PASS_' + env.INSTANCE | upper] }}
+
+          gcloud compute ssh ubuntu@${{ secrets.VM_NAME }} \
+            --project=${{ env.PROJECT_ID }} \
+            --zone=${{ secrets.VM_ZONE }} \
             --tunnel-through-iap \
-            --command="cd /opt/liquibase-project/$BUILD_DIR/db && \
-              liquibase --url='$DB_URL' \
-                        --username='$DB_USER' \
-                        --password='$DB_PASS' \
-                        --changeLogFile=$CHANGELOG_FILE \
-                        status && \
-              liquibase --url='$DB_URL' \
-                        --username='$DB_USER' \
-                        --password='$DB_PASS' \
-                        --changeLogFile=$CHANGELOG_FILE \
-                        validate && \
-              liquibase --url='$DB_URL' \
-                        --username='$DB_USER' \
-                        --password='$DB_PASS' \
-                        --changeLogFile=$CHANGELOG_FILE \
-                        updateSQL && \
-              liquibase --url='$DB_URL' \
-                        --username='$DB_USER' \
-                        --password='$DB_PASS' \
-                        --changeLogFile=$CHANGELOG_FILE \
+            --command="cd /opt/liquibase-project/${{ env.BUILD_DIR }}/db && \
+              liquibase --url='${DB_URL}' \
+                        --username='${DB_USER}' \
+                        --password='${DB_PASS}' \
+                        --changeLogFile=changelog-master.xml \
                         tag build-${GITHUB_RUN_NUMBER} && \
-              liquibase --url='$DB_URL' \
-                        --username='$DB_USER' \
-                        --password='$DB_PASS' \
-                        --changeLogFile=$CHANGELOG_FILE \
-                        update"
+              liquibase --url='${DB_URL}' \
+                        --username='${DB_USER}' \
+                        --password='${DB_PASS}' \
+                        --changeLogFile=changelog-master.xml \
+                        --defaultSchemaName=public \
+                        update --log-level=info"
