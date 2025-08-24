@@ -12,10 +12,7 @@ permissions:
 jobs:
   liquibase-deploy:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        instance: [pricing, catalog]
-
+    
     env:
       BUILD_DIR: build-${{ github.run_number }}
 
